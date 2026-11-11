@@ -1,15 +1,15 @@
-NODE ?= node
+CLUNKYARD ?= npx --yes @clunkyard/cli@2
 
 .PHONY: all setup doctor match replay clean
 all:
-	$(NODE) clunkyard.cjs build
+	$(CLUNKYARD) build
 setup:
-	$(NODE) clunkyard.cjs setup
+	$(CLUNKYARD) setup
 doctor:
-	$(NODE) clunkyard.cjs doctor
+	$(CLUNKYARD) doctor
 match:
-	$(NODE) clunkyard.cjs match
+	$(CLUNKYARD) match
 replay:
-	$(NODE) clunkyard.cjs replay
+	$(CLUNKYARD) replay
 clean:
-	$(NODE) clunkyard.cjs clean
+	$(CLUNKYARD) clean

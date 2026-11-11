@@ -1,40 +1,38 @@
 # A Clunkyard robot in c-wasm
 
-Edit `bot.c`, build, play a real match and read its replay. This is the same starter used by Clunkyard's online editor, on SDK 2.0.0 and protocol 2.
-
-## Start locally
-
-Install Node 20+ and your existing language tools: `clang`, `wasm-ld`. Native SDK assets require Linux x86-64 and glibc 2.39+ (Ubuntu 24.04+ or WSL2 Ubuntu 24.04+). Other native platforms are not yet qualified.
+Edit `bot.c`, build, play a real local match and inspect its replay. Install Node 20+ with npm and your existing language tools: `clang`, `wasm-ld`.
+Native SDK assets require Linux x86-64 and glibc 2.39+ (Ubuntu 24.04+ or WSL2 Ubuntu 24.04+).
 
 ```sh
 git clone https://github.com/clunkyard/starter-c-wasm.git
 cd starter-c-wasm
-make doctor
-make
-make match
-make replay
+npx --yes @clunkyard/cli@2 doctor
+npx --yes @clunkyard/cli@2 build
+npx --yes @clunkyard/cli@2 match
+npx --yes @clunkyard/cli@2 replay
 ```
 
-Without Make, use `node clunkyard.cjs build`, `match` and `replay` (also available through `npm run`). The first build downloads the checksum-pinned local engine (6.7MiB) and only this language's SDK (11.11MiB). It installs into ignored `.clunkyard/`; it does not download a toolchain or require Docker, an account, root access or the all-language builder. An existing matching installation can be selected with `CLUNKYARD_SDK`. Compiler-specific bindings rebuild with your installed compiler.
+If you use Make, the equivalent commands are `make doctor`, `make`, `make match` and `make replay`. The shared CLI downloads the checksum-pinned local engine and only this language's SDK. Downloads, build output and temporary files stay in ignored `.clunkyard/`. No account, Docker image, administrator access or all-language builder is needed.
 
 Install Clang with the wasm32 backend and wasm-ld (the lld package on Ubuntu). No WASI sysroot is needed.
 
-Read the [language binding guide](https://clunkyard.com/sdk/wasm) for compiler versions, the official language guide and dependencies. Run `node clunkyard.cjs doctor` to check available tools. Your normal language commands remain available; `make` provides a repeatable SDK-aware build. 
+The [language guide](https://clunkyard.com/sdk/wasm) lists the adapter, official language reference and toolchain prerequisites. `doctor` checks your existing installation without downloading a compiler. Compiler-sensitive native bindings rebuild with your own toolchain.
 
 ## Repeat a trial
 
 ```sh
-node clunkyard.cjs match 42 2d classic
-node clunkyard.cjs match 77 3d zero-g
-node clunkyard.cjs replay replays/trial-42.json
+npx --yes @clunkyard/cli@2 match 42 2d classic
+npx --yes @clunkyard/cli@2 match 77 3d zero-g
 ```
 
-Keep a baseline commit. Repeat several seeds/rulesets and inspect contacts, battery, aim, hits and eliminations. Local programs run as your user; these are compatibility and tactic trials, not authoritative hosted CPU measurements.
+Keep a baseline commit. Repeat several seeds and rulesets; compare contacts, battery, aim, shots, hits and eliminations in the replay. Local trials run programs as your user. Use hosted trials to measure arena budgets before a tournament.
+
+The CLI packages SDK 2.0.0/protocol 2 asset identities from the immutable [v2.0.0-kit.2 release](https://github.com/clunkyard/game-kit/releases/tag/v2.0.0-kit.2). `@2` receives compatible tooling fixes without copying scripts into your robot repository. To reproduce an exact tool version, use `npx --yes @clunkyard/cli@2.0.0` or set `CLUNKYARD='npx --yes @clunkyard/cli@2.0.0'` with Make. SDK/engine caches are identified by their content hashes and remain reusable across CLI updates.
 
 ## Play online
 
-Create or copy a bot at [clunkyard.com](https://clunkyard.com). To use ordinary Git pushes, create your own repository from this template, install/connect Clunkyard's GitHub integration in My bots, select that repository/ref and import its root. Commit and push changes to that ref: the integration saves an immutable revision and queues its build. Start an arena trial and inspect the revision-linked replay. Save browser changes before syncing and resolve any source conflict explicitly. Keep SDK downloads/output in ignored `.clunkyard/` and never commit access tokens.
+Create or copy a bot at [clunkyard.com](https://clunkyard.com). For Clunkyard's private Git remote, install `npm install --global @clunkyard/git@2.0.1`, run `clunkyard-git login` and follow the [private Git guide](https://clunkyard.com/sdk/private-git) to clone your bot. Copy tracked robot files into that private clone while keeping its own `.git` directory; do not import unrelated starter history or commit generated caches. An accepted push saves a revision and requests its hosted build.
 
-The managed private Artifacts repository is not exposed as a raw Git remote in this release. Owner Git credentials and direct clone/push are a separate application feature. [WebDAV](https://clunkyard.com/manual#local-development) remains another editor option.
+You can also create your own GitHub repository from this template, connect it in My bots and select the repository/ref for build-on-push. [WebDAV](https://clunkyard.com/manual#local-development) is available for desktop editors. Save browser changes before syncing; resolve any source conflict before publishing.
 
 [API and adapters](https://clunkyard.com/sdk) · [Local trials](https://clunkyard.com/sdk/local-trials) · [Game manual](https://clunkyard.com/manual)
