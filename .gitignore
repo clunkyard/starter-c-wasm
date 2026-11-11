@@ -1,0 +1,6 @@
+.clunkyard/
+replays/
+build/
+node_modules/
+__pycache__/
+*.pyc

@@ -1,0 +1,17 @@
+{
+  "name": "My robot",
+  "language": "c-wasm",
+  "entry": "bot.c",
+  "protocol": 2,
+  "supportedModes": [
+    "2d",
+    "3d"
+  ],
+  "supportedRulesets": [
+    "classic",
+    "inertial-2d",
+    "gravity-flat",
+    "gravity-hills",
+    "zero-g"
+  ]
+}

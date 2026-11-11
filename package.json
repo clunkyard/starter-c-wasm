@@ -1,0 +1,14 @@
+{
+  "name": "clunkyard-starter-c-wasm",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node clunkyard.cjs build",
+    "doctor": "node clunkyard.cjs doctor",
+    "match": "node clunkyard.cjs match",
+    "replay": "node clunkyard.cjs replay"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
