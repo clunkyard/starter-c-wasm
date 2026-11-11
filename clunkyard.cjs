@@ -89,6 +89,9 @@ function stdio() {
   let command=worker().runCommand(m.language,path.join(root,m.entry),out,m);
   if(['javascript','typescript'].includes(m.language))command=[process.execPath,m.language==='typescript'?path.join(out,m.entry.replace(/\.ts$/,'.js')):entry];
   if(m.language==='julia')command=['julia','--startup-file=no',entry];
+  if(m.language==='clojure')command=command.map(value=>value.replace('/usr/share/java/clojure.jar',clojureClasspath()));
+  if(m.language==='scala'&&process.env.SCALA_LIBRARY_JAR)command=command.map(value=>value.replace('/usr/share/scala-2.11/lib/scala-library.jar',process.env.SCALA_LIBRARY_JAR));
+  else if(m.language==='scala'&&!fs.existsSync('/usr/share/scala-2.11/lib/scala-library.jar'))command=['scala','-J--enable-native-access=ALL-UNNAMED','-cp',`${path.join(out,'classes')}:${sdk}/bindings/java/clunkyard.jar`,m.mainClass||path.basename(m.entry,'.scala')];
   if(m.language==='php')command=['php','-d','ffi.enable=true','-d',`include_path=${sdk}/bindings/php`,entry];
   const julia=m.language==='julia'?{JULIA_LOAD_PATH:`${sdk}/bindings/julia${path.delimiter}@stdlib`,JULIA_DEPOT_PATH:path.join(cache,'julia-depot'),OPENBLAS_NUM_THREADS:'1'}:{};
   const values=command.map(rewrite);run(values[0],values.slice(1),{env:{...environment(),...julia}});
@@ -101,10 +104,39 @@ async function match(args) {
   const failures=JSON.parse(fs.readFileSync(replay,'utf8')).failures||[];
   if(failures.length)throw new Error(`Match recorded ${failures.map(value=>`${value.botId}: ${value.code}`).join(', ')}. Inspect ${replay}.`);
 }
+function clojureClasspath(){
+  if(process.env.CLOJURE_CLASSPATH)return process.env.CLOJURE_CLASSPATH;
+  if(process.env.CLOJURE_JAR){if(!fs.existsSync(process.env.CLOJURE_JAR))throw new Error('CLOJURE_JAR does not exist');return process.env.CLOJURE_JAR;}
+  if(fs.existsSync('/usr/share/java/clojure.jar'))return '/usr/share/java/clojure.jar';
+  const result=spawnSync('clojure',['-Spath'],{encoding:'utf8',timeout:10000});
+  if(result.status===0&&result.stdout.trim())return result.stdout.trim();
+  throw new Error('Install Clojure or set CLOJURE_CLASSPATH / CLOJURE_JAR to its runtime. See README.md.');
+}
+function toolAvailable(tool){
+  const extensions=process.platform==='win32'?['',...(process.env.PATHEXT||'.EXE;.CMD;.BAT').split(';')]:[''];
+  for(const directory of (process.env.PATH||'').split(path.delimiter))for(const extension of extensions){
+    const file=path.join(directory||root,tool+extension);
+    try{if(fs.statSync(file).isFile()){fs.accessSync(file,process.platform==='win32'?fs.constants.F_OK:fs.constants.X_OK);return true}}catch{}
+  }
+  return false;
+}
 function doctor(){
   console.log(`Clunkyard SDK ${lock.sdkVersion}; ${lock.language}; ${process.platform}/${process.arch}; Node ${process.versions.node}`);
   let missing=0;
-  for(const tool of lock.tools){const result=spawnSync(tool,['--version'],{encoding:'utf8',env:environment()});const ok=!result.error;console.log(`${ok?'ok':'missing'} ${tool}`);if(!ok)missing++;}
+  for(const tool of lock.tools){const ok=toolAvailable(tool);console.log(`${ok?'found':'missing'} ${tool}`);if(!ok)missing++;}
+  for(const check of lock.requirements?.checks||[]){
+    const result=spawnSync(check.command,check.args,{encoding:'utf8',env:environment(),timeout:10000});
+    const output=String(result.stdout||'')+String(result.stderr||'');
+    const version=check.versionPattern?Number(output.match(new RegExp(check.versionPattern))?.[1]):null;
+    const ok=!result.error&&result.status===0&&(!check.minimum||version>=check.minimum);
+    console.log(`${ok?'ok':'missing'} ${check.label}${ok?'':': '+check.hint}`);if(!ok)missing++;
+  }
+  if(lock.language==='clojure'){try{console.log('ok Clojure runtime: '+clojureClasspath())}catch(error){console.log('missing '+error.message);missing++}}
+  if(lock.language==='scala'&&process.env.SCALA_LIBRARY_JAR&&!fs.existsSync(process.env.SCALA_LIBRARY_JAR)){console.log('missing SCALA_LIBRARY_JAR file');missing++}
+  if(lock.language==='scala'&&!process.env.SCALA_LIBRARY_JAR&&!fs.existsSync('/usr/share/scala-2.11/lib/scala-library.jar')&&spawnSync('scala',['-version'],{timeout:10000}).error){console.log('missing Scala runtime; set SCALA_LIBRARY_JAR or install the scala launcher.');missing++}
+  const glibc=process.report?.getReport().header.glibcVersionRuntime;
+  if(!lock.portable&&(process.platform!=='linux'||process.arch!=='x64'||!glibc||Number(glibc.split('.')[0])<2||(Number(glibc.split('.')[0])===2&&Number(glibc.split('.')[1])<39))){console.log('unsupported native platform: use Linux x86-64 with glibc 2.39+ (Ubuntu 24.04+ or WSL2).');missing++}
+  for(const note of lock.requirements?.notes||[])console.log(note);
   console.log(lock.portable?'Portable Node route.':'Native assets: Linux x86-64, glibc 2.39+; Ubuntu 24.04+/WSL2.');
   console.log('No toolchains are downloaded automatically. See README.md for official installers.');
   if(missing)process.exitCode=1;

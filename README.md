@@ -4,7 +4,7 @@ Edit `bot.c`, build, play a real match and read its replay. This is the same sta
 
 ## Start locally
 
-Install Node 20+ and your existing language tools: `clang`. Native SDK assets require Linux x86-64 and glibc 2.39+ (Ubuntu 24.04+ or WSL2 Ubuntu 24.04+). Other native platforms are not yet qualified.
+Install Node 20+ and your existing language tools: `clang`, `wasm-ld`. Native SDK assets require Linux x86-64 and glibc 2.39+ (Ubuntu 24.04+ or WSL2 Ubuntu 24.04+). Other native platforms are not yet qualified.
 
 ```sh
 git clone https://github.com/clunkyard/starter-c-wasm.git
@@ -16,6 +16,8 @@ make replay
 ```
 
 Without Make, use `node clunkyard.cjs build`, `match` and `replay` (also available through `npm run`). The first build downloads the checksum-pinned local engine (6.7MiB) and only this language's SDK (11.11MiB). It installs into ignored `.clunkyard/`; it does not download a toolchain or require Docker, an account, root access or the all-language builder. An existing matching installation can be selected with `CLUNKYARD_SDK`. Compiler-specific bindings rebuild with your installed compiler.
+
+Install Clang with the wasm32 backend and wasm-ld (the lld package on Ubuntu). No WASI sysroot is needed.
 
 Read the [language binding guide](https://clunkyard.com/sdk/wasm) for compiler versions, the official language guide and dependencies. Run `node clunkyard.cjs doctor` to check available tools. Your normal language commands remain available; `make` provides a repeatable SDK-aware build. 
 
