@@ -42,7 +42,8 @@
  *   gun_get_fire gun_get_power
  * scanner: scanner_last scanner_proximity_range scanner_reach
  *   scanner_arc_for_reach scanner_heading scanner_arc scanner_pitch
- *   scanner_get_heading scanner_get_arc scanner_get_pitch
+ *   scanner_is_on scanner_on scanner_get_heading scanner_get_arc
+ *   scanner_get_pitch scanner_get_on
  * sensors: sensors_contacts sensors_nearest sensors_cues sensors_contact
  *   sensors_position_of
  * tracker: tracker_cue tracker_nearest_bearing_rate tracker_velocity
