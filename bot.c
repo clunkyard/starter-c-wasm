@@ -47,7 +47,7 @@
  * sensors: sensors_contacts sensors_nearest sensors_cues sensors_contact
  *   sensors_position_of
  * tracker: tracker_cue tracker_nearest_bearing_rate tracker_velocity
- *   tracker_position tracker_last_seen tracker_configure
+ *   tracker_position tracker_history tracker_last_seen tracker_configure
  * nav: nav_zone nav_zone_margin nav_zone_contains nav_zone_distance_from
  *   nav_storm nav_storm_margin nav_storm_contains nav_storm_distance_from
  *   nav_hill nav_hill_margin nav_hill_contains nav_hill_distance_from
