@@ -26,6 +26,7 @@
  * arena: arena_size arena_gravity arena_terrain_kind arena_ground_height
  * me: me_health me_position me_velocity me_heading me_pitch me_roll
  *   me_angular_velocity me_attitude me_grounded me_altitude me_applied
+ *   me_hull_mounts me_to_mount me_from_mount me_mount_toward
  * battery: battery_charge battery_capacity battery_regen
  *   battery_sustainable_drive battery_compute battery_drive_cost
  * drive: drive_hover_lift drive_throttle drive_turn drive_pitch_turn
@@ -54,7 +55,8 @@
  *   nav_pickups nav_nearest_pickup nav_field_distance
  * score: score_me score_best score_armour
  * angles: angles_normalize angles_angle_diff angles_bearing_to
- *   angles_elevation_to angles_direction angles_distance angles_clamp
+ *   angles_elevation_to angles_direction angles_distance angles_to_chassis
+ *   angles_from_chassis angles_clamp
  * status: status_text status_value status_get_text status_get_value
  * raw: raw_number raw_text raw_has raw_flag raw_count raw_line raw_extra
  * session: session_log
@@ -66,9 +68,12 @@
 
 #define SEARCH_TURN 0.33 /* enough to turn against the brake in the force rulesets */
 #define MEMORY_TICKS 60  /* how long to look again where a robot was last seen */
+#define DODGE_TICKS 10   /* how long a dodge lasts: half a second */
 
 static int free_flight;   /* flying free, robots may be above or below */
+static int forces;        /* the force rulesets: push the hull, not steer it */
 static int32_t last_slot; /* the robot seen most recently, 0 for none yet */
+static int32_t dodge_until, dodges; /* the tick the dodge ends, and how many so far */
 
 static double absolute(double value) { return value < 0 ? -value : value; }
 static double unit(double value) { return value < -1 ? -1 : value > 1 ? 1 : value; }
@@ -91,6 +96,9 @@ static void start(void) {
   cy_match_is_3d(&is_3d);
   cy_arena_gravity(&gravity);
   free_flight = is_3d && gravity.z == 0;
+  int32_t control = 0;
+  cy_match_control(&control);
+  forces = control == CY_CONTROL_FORCES;
 }
 
 static void turn(void) {
@@ -115,7 +123,8 @@ static void turn(void) {
     cy_scanner_pitch(target.elevation);
     /* The heaviest shot that still covers the range in about a second,
      * aimed where the target will be, lobbed under gravity; straight at
-     * it when no shot reaches it. */
+     * it when no shot reaches it. The lead is the intercept if the target
+     * holds its course. */
     double power = 1;
     cy_gun_power_for_flight_time(target.range, 1, &power);
     cy_solution aim;
@@ -160,6 +169,30 @@ static void turn(void) {
     cy_scanner_heading(scan.heading + 36);
     cy_scanner_arc(40);
     cy_scanner_pitch(free_flight ? ((tick / 10) % 3 - 1) * 35 : 0);
+  }
+
+  /* A simple dodge: vary it, or predict the shooter. A muzzle cue means a
+   * robot fired; for half a second swerve off the line of fire, left and
+   * right in turn. More cues than the array holds (CY_SHORT) count as none
+   * heard. */
+  cy_contact cues[8];
+  uint32_t count = 0;
+  if (tick >= dodge_until && cy_sensors_cues(cues, 8, &count) == CY_OK)
+    for (uint32_t i = 0; i < count; i++)
+      if (cues[i].source == CY_SOURCE_MUZZLE) {
+        dodge_until = tick + DODGE_TICKS;
+        dodges++;
+        break;
+      }
+  if (tick < dodge_until) {
+    int left = dodges % 2 == 1; /* turn is positive left, strafe positive right */
+    if (forces) {
+      cy_drive_throttle(0.5);
+      cy_drive_strafe(left ? -1 : 1);
+    } else {
+      cy_drive_throttle(1);
+      cy_drive_turn(left ? 1 : -1);
+    }
   }
 
   /* Low battery: drive gently so the shots can still be paid for. */
