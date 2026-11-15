@@ -2,7 +2,7 @@
  * robot core through the clunkyard.* imports in clunkyard.h, which the
  * builder provides. It sweeps a medium scan to find a robot, narrows the
  * scan to hold it, leads it with shots whose power suits the range, fires
- * only when the turret is on target, keeps battery back for driving, looks
+ * only when the turret is on target and its aim is earned, keeps battery back for driving, looks
  * again where it last saw one, follows a passive cue when it has nothing
  * better and steps out of the storm.
  *
@@ -11,7 +11,12 @@
  *   power    heavy shots hit harder for less battery, but fly slowly
  *   battery  shots and driving share it, and it refills slowly
  *   turret   it turns at a limited rate; cy_gun_aim_now is where it points now
- *   fuel     every import costs fuel, so read each fact once a turn
+ *   fuel     every import costs fuel, and a byte it copies costs one, so
+ *            read each fact once a turn and keep your own short memory
+ *            rather than copying the Tracker's whole history every turn
+ * Bearing is earned: a scan contact's bearing is off by up to its
+ * bearing_error degrees (a fixed share of the arc), so a wide beam finds a
+ * robot and a narrow one aims at it. Contacts within 120 units are exact.
  * A cue (cy_tracker_cue) says roughly where a robot is, within its
  * bearing_error degrees: good for where to look, not where to shoot.
  * Clunkyard WebAssembly ABI 4: the robot calls the core through imports
@@ -69,10 +74,17 @@
 #define SEARCH_TURN 0.33 /* enough to turn against the brake in the force rulesets */
 #define MEMORY_TICKS 60  /* how long to look again where a robot was last seen */
 #define DODGE_TICKS 10   /* how long a dodge lasts: half a second */
+#define SEARCH_ARC 40    /* degrees: sweeps the circle in half a second */
+#define HOLD_WIDTH 60    /* units across at the target: it stays in the beam from tick to tick */
+#define MIN_ARC 6        /* degrees: the narrowest the beam holds */
+#define WINDOW 12        /* ticks of sightings the aim averages */
+#define SIGHTINGS 8      /* narrow sightings in the window before a shot */
+#define LOOK_EVERY 40    /* ticks between looks around the target, for a nearer robot */
 
 static int free_flight;   /* flying free, robots may be above or below */
 static int forces;        /* the force rulesets: push the hull, not steer it */
 static int32_t last_slot; /* the robot seen most recently, 0 for none yet */
+static int32_t tick_rate;
 static int32_t dodge_until, dodges; /* the tick the dodge ends, and how many so far */
 
 static double absolute(double value) { return value < 0 ? -value : value; }
@@ -90,7 +102,56 @@ static void steer(double throttle, double heading, double elevation, double gain
   cy_drive_pitch_turn(unit((elevation - my_pitch) / gain));
 }
 
+/* The angle, in degrees, of a beam HOLD_WIDTH across at this range: atan by a rational fit, with no libm. */
+static double hold_arc(double range) {
+  double x = 30 / range, flip = x > 1;
+  if (flip) x = 1 / x;
+  double angle = x / (1 + 0.28125 * x * x);
+  return 2 * (flip ? 1.5707963 - angle : angle) * 57.29578;
+}
+
+/* The target's last WINDOW sightings, kept here: cy_tracker_history would
+ * copy all 32 of its sightings, 48 bytes each, into the turn's fuel. */
+static struct { int32_t tick; double error; cy_vec3 position; } ring[WINDOW];
+static int32_t ring_slot, ring_next, ring_count;
+static void remember(const cy_contact *target, int32_t tick) {
+  if (target->slot != ring_slot) { ring_slot = target->slot; ring_next = ring_count = 0; }
+  ring[ring_next].tick = tick; ring[ring_next].error = target->bearing_error; ring[ring_next].position = target->position;
+  ring_next = (ring_next + 1) % WINDOW;
+  if (ring_count < WINDOW) ring_count++;
+}
+
+/* A straight line through the narrowest of the last WINDOW ticks' sightings:
+ * where the robot is now and how fast it moves. Each sighting is off by its
+ * bearing_error; the line averages that out. Ordinary least squares, with
+ * time counted back from now so the line's value at now is its intercept.
+ * Returns how many sightings it used. */
+static int fit(int32_t tick, cy_vec3 *position, cy_vec3 *velocity) {
+  double best = 1e9;
+  for (int i = 0; i < ring_count; i++)
+    if (ring[i].tick > tick - WINDOW && ring[i].error < best) best = ring[i].error;
+  double n = 0, st = 0, stt = 0, sp[3] = {0}, stp[3] = {0};
+  for (int i = 0; i < ring_count; i++) {
+    if (ring[i].tick <= tick - WINDOW || ring[i].error > 1.5 * best) continue; /* a look's wide sighting drops out */
+    double dt = ring[i].tick - tick;
+    const cy_vec3 *p = &ring[i].position;
+    n++; st += dt; stt += dt * dt;
+    sp[0] += p->x; sp[1] += p->y; sp[2] += p->z;
+    stp[0] += dt * p->x; stp[1] += dt * p->y; stp[2] += dt * p->z;
+  }
+  if (n < 2) return 0;
+  double spread = n * stt - st * st, slope[3], at[3];
+  for (int a = 0; a < 3; a++) {
+    slope[a] = (n * stp[a] - st * sp[a]) / spread;
+    at[a] = (sp[a] - slope[a] * st) / n;
+  }
+  position->x = at[0]; position->y = at[1]; position->z = at[2];
+  velocity->x = slope[0] * tick_rate; velocity->y = slope[1] * tick_rate; velocity->z = slope[2] * tick_rate;
+  return (int)n;
+}
+
 static void start(void) {
+  cy_match_tick_rate(&tick_rate);
   int32_t is_3d = 0;
   cy_vec3 gravity = {0};
   cy_match_is_3d(&is_3d);
@@ -118,17 +179,37 @@ static void turn(void) {
     last_slot = target.slot;
     double throttle = target.range > 350 ? 0.7 : target.range < 200 ? -0.4 : 0.2;
     steer(throttle, target.bearing, target.elevation, 45, heading, pitch);
-    cy_scanner_heading(target.bearing); /* narrow: holds it, reaching about 735 */
-    cy_scanner_arc(20);
+    /* Halve the beam each tick until it is HOLD_WIDTH across at the target:
+     * narrow enough for a precise bearing, wide enough to keep it in. Every
+     * LOOK_EVERY ticks widen it for a tick, so a nearer robot can be found. */
+    double hold = hold_arc(target.range), arc = SEARCH_ARC;
+    cy_scan beam = {0};
+    cy_scanner_last(&beam);
+    if (hold < MIN_ARC) hold = MIN_ARC;
+    if (tick % LOOK_EVERY != 0) {
+      arc = beam.arc / 2 < SEARCH_ARC ? beam.arc / 2 : SEARCH_ARC;
+      if (arc < hold) arc = hold;
+    }
+    cy_scanner_heading(target.bearing);
+    cy_scanner_arc(arc);
     cy_scanner_pitch(target.elevation);
     /* The heaviest shot that still covers the range in about a second,
      * aimed where the target will be, lobbed under gravity; straight at
-     * it when no shot reaches it. The lead is the intercept if the target
-     * holds its course. */
+     * it when no shot reaches it. An exact contact: cy_gun_lead is the
+     * intercept if the target holds its course. A noisy one: lead the
+     * fitted line, and fire only once it rests on enough sightings. */
     double power = 1;
     cy_gun_power_for_flight_time(target.range, 1, &power);
     cy_solution aim;
-    if (cy_gun_lead(&target, power, &aim) != CY_OK) aim = (cy_solution){target.bearing, target.elevation, 0};
+    int ready = 1, found = 0;
+    if (target.bearing_error > 0) {
+      cy_vec3 where, speed;
+      remember(&target, tick);
+      int used = fit(tick, &where, &speed);
+      found = used > 0 && cy_gun_lead_point(&where, &speed, power, &aim) == CY_OK;
+      ready = found && used >= SIGHTINGS;
+    } else found = cy_gun_lead(&target, power, &aim) == CY_OK;
+    if (!found) aim = (cy_solution){target.bearing, target.elevation, 0};
     cy_gun_aim_heading(aim.heading);
     cy_gun_aim_pitch(aim.pitch);
     cy_direction now = {0};
@@ -136,7 +217,7 @@ static void turn(void) {
     cy_gun_aim_now(&now);
     cy_gun_can_fire(power, 10, &can_fire);
     int on_target = absolute(angle_diff(aim.heading, now.heading)) < 3 && absolute(aim.pitch - now.pitch) < 3;
-    if (on_target && can_fire) {
+    if (ready && on_target && can_fire) {
       cy_gun_fire();
       cy_gun_power(power);
     }
