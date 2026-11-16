@@ -63,6 +63,7 @@
  *   angles_elevation_to angles_direction angles_distance angles_to_chassis
  *   angles_from_chassis angles_clamp
  * status: status_text status_value status_get_text status_get_value
+ * debug: debug_log
  * raw: raw_number raw_text raw_has raw_flag raw_count raw_line raw_extra
  * session: session_log
  * Records: cy_contact, cy_vec3, cy_direction and the rest, in clunkyard.h.
